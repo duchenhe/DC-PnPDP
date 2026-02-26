@@ -1,39 +1,77 @@
 # Plug-and-Play Diffusion Meets ADMM: Dual-Variable Coupling for Robust Medical Image Reconstruction 🚀
 
-Official PyTorch implementation for "Plug-and-Play Diffusion Meets ADMM: Dual-Variable Coupling for Robust Medical Image Reconstruction" ✨
+[![arXiv](https://img.shields.io/badge/arXiv-2602.04162-B31B1B.svg)](https://arxiv.org/abs/2602.04162)
 
-[![arXiv](https://img.shields.io/badge/Paper-arXiv-B31B1B.svg)](https://arxiv.org/abs/2602.04162)
+---
 
 ## 📖 Overview
 
-Plug-and-Play diffusion prior (PnPDP) frameworks have emerged as a powerful paradigm for solving imaging inverse problems by treating pretrained generative models as modular priors. However, we identify a critical flaw in prevailing PnP solvers (e.g., based on HQS or Proximal Gradient): they function as memoryless operators, updating estimates solely based on instantaneous gradients. This lack of historical tracking inevitably leads to non-vanishing steady-state bias, where the reconstruction fails to strictly satisfy physical measurements under heavy corruption. To resolve this, we propose Dual-Coupled PnP Diffusion, which restores the classical dual variable to provide integral feedback, theoretically guaranteeing asymptotic convergence to the exact data manifold. However, this rigorous geometric coupling introduces a secondary challenge: the accumulated dual residuals exhibit spectrally colored, structured artifacts that violate the Additive White Gaussian Noise (AWGN) assumption of diffusion priors, causing severe hallucinations. To bridge this gap, we introduce Spectral Homogenization (SH), a frequency-domain adaptation mechanism that modulates these structured residuals into statistically compliant pseudo-AWGN inputs. This effectively aligns the solver's rigorous optimization trajectory with the denoiser's valid statistical manifold. Extensive experiments on CT and MRI reconstruction demonstrate that our approach resolves the bias-hallucination trade-off, achieving state-of-the-art fidelity with significantly accelerated convergence.
+Plug-and-Play diffusion prior (PnPDP) methods are powerful for solving inverse problems, yet conventional HQS / proximal-style solvers are stateless and can converge to biased solutions under severe measurement corruption. We introduce two complementary ideas:
 
-## 📦 Project Structure
+- 🔗 **Dual-Coupled PnP Diffusion (DCPnPDP)** — reintroduces ADMM dual variables as integral feedback, enforcing stronger measurement consistency throughout the diffusion sampling trajectory.
+- 🌈 **Spectral Homogenization (SH)** — transforms structured dual residuals into pseudo-AWGN residuals that match the statistical assumptions of diffusion denoisers, enabling plug-and-play use of off-the-shelf score networks.
 
-```
+This repository provides a complete **parallel-beam CT (PBCT)** reconstruction pipeline built on these two components, with NIfTI I/O and quantitative evaluation (PSNR / SSIM / LPIPS) included.
+
+## 🗂️ Repository Structure
+
+```text
 .
-├─ algorithms/              # DiffPIR, DCPnPDP, and base sampling logic
-├─ physics/                 # CT forward model (PBCT) and Radon operators
-├─ utils/                   # I/O, metrics, scheduling, argument parsing
-├─ recon_PBCT_optimized.py  # Main reconstruction entry point
-├─ recon_PBCT.py            # Legacy / reference entry point
-├─ recon_PBCT.sh            # Example launch script
-└─ results/                 # Example outputs (safe to delete)
+├── algorithms/        # DCPnPDP, DiffPIR, SH, and base sampler
+├── physics/           # CT forward / adjoint / FBP operators (PBCT)
+├── utils/             # Argument parsing, data I/O, metrics, scheduler
+├── dnnlib/            # EDM-style checkpoint loading utilities
+├── torch_utils/       # Auxiliary modules from the EDM codebase
+├── recon_PBCT.py      # Main reconstruction entry point
+└── recon_PBCT.sh      # Example run script
 ```
+
+## 🛠️ Installation
+
+**Requirements:**
+
+```bash
+conda create -n dcpnpdp python=3.10 -y
+conda activate dcpnpdp
+
+# PyTorch — match the command to your CUDA version (https://pytorch.org)
+pip install torch torchvision
+
+# General dependencies
+pip install numpy pyyaml tqdm requests SimpleITK torchmetrics lpips
+
+# CT operators — install according to your CUDA setup
+# • astra-toolbox  (https://github.com/astra-toolbox/astra-toolbox)
+# • torch-radon    (https://github.com/carterbox/torch-radon)
+```
+
+## 🤖 Pretrained Checkpoint
+
+We provide a pretrained unconditional diffusion model (trained on 100K+ abdominal CT slices) to support reproducibility and follow-up research. See [`CHECKPOINTS.md`](./CHECKPOINTS.md) for the download link and training details.
+
+Place the downloaded `.pkl` file at a path of your choice (e.g., `./checkpoint/edm/network-snapshot-003882.pkl`) and update `recon_PBCT.sh` accordingly.
+
+## 📂 Data Preparation
+
+Input volumes should be 3D NIfTI files (`.nii` / `.nii.gz`). The example script uses:
+
+```
+./data/AbdomenCT-1K/valid/Case_00066_0000.nii.gz
+```
+
+Neither dataset files nor checkpoints are included in this repository. Please obtain and place them manually.
 
 ## 🚀 Quick Start
 
-1) **Prepare data**
-
-Provide a 3D CT volume in NIfTI format (`.nii` or `.nii.gz`).
-
-1) **Run reconstruction**
+**Option A — shell script (recommended for first run):**
 
 ```bash
 bash recon_PBCT.sh
 ```
 
-Or call the Python entry directly:
+Edit the variable block at the top of `recon_PBCT.sh` to set your data path, checkpoint path, method, and task.
+
+**Option B — direct Python call:**
 
 ```bash
 python recon_PBCT.py \
@@ -42,32 +80,66 @@ python recon_PBCT.py \
   --degree 20 \
   --gpu 0 \
   --data /path/to/volume.nii.gz \
-  --slice-begin 0 \
-  --slice-end 500 \
-  --slice-step 10 \
+  --slice-begin 0 --slice-end 500 --slice-step 10 \
   --recon-size 256 \
   --NFE 50 \
   --num-cg 50 \
+  --w-tik 0 \
   --noise-control None \
+  --use-init True \
   --renoise-method DDPM \
   --sigma-max 2 \
   --checkpoint-path /path/to/network-snapshot.pkl \
   --save_dir ./results/
 ```
 
-<!-- ## 📜 Citation
+## ⚙️ Key Arguments
 
-If you find our work interesting, please consider citing:
+| Argument | Description | Example |
+|---|---|---|
+| `--method` | Reconstruction algorithm | `DCPnPDP`, `DiffPIR`, `edm` |
+| `--task` | CT degradation type | `SVCT`, `LACT` |
+| `--degree` | SVCT: number of views; LACT: angular range (°) | `20`, `90` |
+| `--data` | Input NIfTI volume | `/path/to/case.nii.gz` |
+| `--slice-begin/end/step` | Slice range within the 3D volume | `0 / 500 / 10` |
+| `--recon-size` | Reconstruction resolution (square) | `256` |
+| `--NFE` | Number of diffusion function evaluations | `50` |
+| `--num-cg` | Conjugate gradient iterations per step | `50` |
+| `--w-tik` | Tikhonov regularization weight | `0`, `1e-3` |
+| `--sigma-max` | Maximum noise level for diffusion sampling | `2` |
+| `--checkpoint-path` | Path to pretrained `.pkl` checkpoint | *(required)* |
+| `--save_dir` | Root directory for outputs | `./results/` |
+
+**Sinogram noise** (`--sino-noise`): `0` = none; `< 100` = Gaussian (std = sqrt(value)); `≥ 100` = Poisson-like.
+
+## 📤 Outputs
+
+Results are saved to a timestamped subdirectory:
 
 ```
-@article{DCPnPDP2026,
+<save_dir>/<case>/<task>-<degree>/<method>/<YYMMDD_HHMMSS>/
+```
+
+| File | Description |
+|------|-------------|
+| `args.yaml` | Full configuration snapshot |
+| `GT.nii.gz` | Ground-truth volume |
+| `measurement.nii.gz` | Sinogram / degraded measurement |
+| `FBP-FV.nii.gz` | Full-view FBP reference |
+| `FBP-LV.nii.gz` | Limited-view FBP baseline |
+| `CG-LV.nii.gz` | CG baseline |
+| `recon.nii.gz` | Method reconstruction |
+| `recon_metrics/` | `metrics_summary.yaml`, error maps |
+
+## 📚 Citation
+
+If you find this work useful, please cite:
+
+```bibtex
+@article{chen2026dcpnpdp,
   title   = {Plug-and-Play Diffusion Meets ADMM: Dual-Variable Coupling for Robust Medical Image Reconstruction},
-  author  = {First Author and Second Author and Others},
-  journal = {Journal / Conference},
+  author  = {Du, Chenhe and Tian, Xuanyu and Wu, Qing and Liu, Muyu and Yu, Jingyi and Wei, Hongjiang and Zhang, Yuyao},
+  journal = {arXiv preprint arXiv:2602.},
   year    = {2026}
 }
-``` -->
-
-## 🔐 License
-
-See the LICENSE file for details.
+```

@@ -31,5 +31,5 @@ dist/
 *.egg-info/
 
 output/
-checkpoints/
+# checkpoints/
 results/

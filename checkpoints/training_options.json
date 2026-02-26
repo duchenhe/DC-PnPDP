@@ -1,0 +1,66 @@
+{
+    "dataset_kwargs": {
+        "class_name": "training.dataset.AbdomenCT1KDataset",
+        "path": "/public/home/duchenhe/code/diffusers-test/data_list.txt",
+        "use_labels": false,
+        "xflip": false,
+        "cache": false,
+        "resolution": 256,
+        "max_size": 104534
+    },
+    "data_loader_kwargs": {
+        "pin_memory": true,
+        "num_workers": 1,
+        "prefetch_factor": 2
+    },
+    "network_kwargs": {
+        "model_type": "SongUNet",
+        "embedding_type": "positional",
+        "encoder_type": "standard",
+        "decoder_type": "standard",
+        "channel_mult_noise": 1,
+        "resample_filter": [
+            1,
+            1
+        ],
+        "model_channels": 128,
+        "channel_mult": [
+            1,
+            1,
+            2,
+            2,
+            2,
+            2,
+            2
+        ],
+        "class_name": "training.networks.EDMPrecond",
+        "dropout": 0.0,
+        "use_fp16": false
+    },
+    "loss_kwargs": {
+        "class_name": "training.loss.EDMLoss"
+    },
+    "optimizer_kwargs": {
+        "class_name": "torch.optim.Adam",
+        "lr": 0.0001,
+        "betas": [
+            0.9,
+            0.999
+        ],
+        "eps": 1e-08
+    },
+    "total_kimg": 200000,
+    "ema_halflife_kimg": 100,
+    "batch_size": 112,
+    "batch_gpu": null,
+    "loss_scaling": 1.0,
+    "cudnn_benchmark": true,
+    "kimg_per_tick": 1,
+    "snapshot_ticks": 50,
+    "state_dump_ticks": 50,
+    "seed": 1779914880,
+    "resume_pkl": "training-runs/00008-AbdomenCT1K-uncond-ddpmpp-edm-gpus8-batch112-fp32/network-snapshot-000304.pkl",
+    "resume_kimg": 304,
+    "resume_state_dump": "training-runs/00008-AbdomenCT1K-uncond-ddpmpp-edm-gpus8-batch112-fp32/training-state-000304.pt",
+    "run_dir": "training-runs/00009-AbdomenCT1K-uncond-ddpmpp-edm-gpus8-batch112-fp32"
+}
