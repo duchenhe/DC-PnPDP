@@ -10,7 +10,7 @@ venv/
 env/
 .venv/
 
-*.csv
+# *.csv
 *.tsv
 *.xlsx
 *.h5
