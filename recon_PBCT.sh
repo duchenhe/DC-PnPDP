@@ -15,7 +15,7 @@ GPU=0
 
 SAVE_DIR="./results/"
 
-CHECKPOINT_PATH="./checkpoint/edm/network-snapshot-003882.pkl"
+CHECKPOINT_PATH="./checkpoints/edm/network-snapshot-003882.pkl"
 
 DATA="./data/AbdomenCT-1K/valid/Case_00066_0000.nii.gz"
 

@@ -1,4 +1,5 @@
 import math
+from collections.abc import Callable
 
 import torch
 import tqdm
@@ -6,6 +7,8 @@ import tqdm
 from utils.result import save_nii_image
 from algorithms.base import BaseEDMSampler
 import algorithms.utils as autils
+
+LinearOp = Callable[[torch.Tensor], torch.Tensor]
 
 
 class DiffPIR(BaseEDMSampler):
@@ -17,12 +20,15 @@ class DiffPIR(BaseEDMSampler):
         latents,
         x_init,
         class_labels=None,
-        y=None,
-        A=None,
-        AT=None,
+        y: torch.Tensor | None = None,
+        A: LinearOp | None = None,
+        AT: LinearOp | None = None,
         num_cg=10,
         w_tik=0.0,
     ):
+        if y is None or A is None or AT is None:
+            raise ValueError("`y`, `A`, and `AT` must be provided for DiffPIR sampling.")
+
         net = self.net
         t_steps = self.get_t_steps(latents)
 
@@ -46,27 +52,22 @@ class DiffPIR(BaseEDMSampler):
 
             pbar.set_postfix({"t": i, "σ_t": f"{float(t_cur):.4f}"})
 
-            # ---- Denoising + Correction ----
-            denoised = self._denoise_batchwise(net, x_cur, t_cur, class_labels, batch_size=16)
+            # ---- Denoising ----
+            x_0_cur = self._denoise_batchwise(net, x_cur, t_cur, class_labels, batch_size=16)
 
             # *----------------------------------------------------------------------------
             # * Data Consistency via Conjugate Gradient
-            denoised_temp = denoised.movedim(0, 1)  # (300,1,256,256) -> (1,300,256,256) # (N,C,H,W) -> (C,N,H,W)
-
             rho_tik = w_tik * (1 / t_cur**2).item()
-            bcg = ATy + rho_tik * denoised_temp
+            bcg = ATy + rho_tik * x_0_cur
 
-            x_0_t_hat = autils.cg_uni(Acg_fn, bcg, denoised_temp, rho=rho_tik, maxiter=num_cg)
-
-            x_0_t_hat = x_0_t_hat.movedim(0, 1)  # (1,300,256,256) -> (300,1,256,256)
-
+            x_0_cur_hat = autils.cg_uni(Acg_fn, bcg, x_0_cur, rho=rho_tik, maxiter=num_cg)
             # *----------------------------------------------------------------------------
 
             # ---- EDM Euler Update ----
-            d_cur = (x_cur - x_0_t_hat) / t_cur  # score
+            d_cur = (x_cur - x_0_cur_hat) / t_cur  # score
 
             # ---- Re-Nosing ----
-            noises = torch.randn_like(x_0_t_hat)
+            noises = torch.randn_like(x_0_cur_hat)
 
             eta = 1
 
@@ -76,6 +77,6 @@ class DiffPIR(BaseEDMSampler):
             noise_sto = sigma_sto * noises
             noise_det = sigma_det * (t_next) * d_cur
 
-            x_next = x_0_t_hat + noise_det + noise_sto
+            x_next = x_0_cur_hat + noise_det + noise_sto
 
         return x_next

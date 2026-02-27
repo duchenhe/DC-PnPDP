@@ -19,7 +19,7 @@ import inspect
 import copy
 import uuid
 import types
-import dnnlib
+from typing import Any
 
 #----------------------------------------------------------------------------
 
@@ -30,6 +30,22 @@ _module_to_src_dict = dict()    # {module: src, ...}
 _src_to_module_dict = dict()    # {src: module, ...}
 
 #----------------------------------------------------------------------------
+
+class EasyDict(dict):
+    """Convenience class that behaves like a dict but allows access with the attribute syntax."""
+
+    def __getattr__(self, name: str) -> Any:
+        try:
+            return self[name]
+        except KeyError:
+            raise AttributeError(name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        self[name] = value
+
+    def __delattr__(self, name: str) -> None:
+        del self[name]
+
 
 def persistent_class(orig_class):
     r"""Class decorator that extends a given class to save its source code
@@ -118,7 +134,7 @@ def persistent_class(orig_class):
         @property
         def init_kwargs(self):
             assert self._init_kwargs is not None
-            return dnnlib.EasyDict(copy.deepcopy(self._init_kwargs))
+            return EasyDict(copy.deepcopy(self._init_kwargs))
 
         def __reduce__(self):
             fields = list(super().__reduce__())
@@ -160,7 +176,7 @@ def import_hook(hook):
 
         hook(meta) -> modified meta
 
-    `meta` is an instance of `dnnlib.EasyDict` with the following fields:
+    `meta` is an instance of `EasyDict` with the following fields:
 
         type:       Type of the persistent object, e.g. `'class'`.
         version:    Internal version number of `torch_utils.persistence`.
@@ -186,8 +202,8 @@ def _reconstruct_persistent_obj(meta):
     r"""Hook that is called internally by the `pickle` module to unpickle
     a persistent object.
     """
-    meta = dnnlib.EasyDict(meta)
-    meta.state = dnnlib.EasyDict(meta.state)
+    meta = EasyDict(meta)
+    meta.state = EasyDict(meta.state)
     for hook in _import_hooks:
         meta = hook(meta)
         assert meta is not None

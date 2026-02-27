@@ -7,6 +7,33 @@ from utils.data import center_pad_nd, center_unpad_nd
 PI = 4 * torch.ones(1).atan()
 
 
+def _to_internal_cbhw(x: torch.Tensor) -> torch.Tensor:
+    """Normalize 4D image layout to [C,B,H,W] for projector internals.
+
+    External callers should use [B,C,H,W]. For backward compatibility, we still
+    accept legacy [C,B,H,W] tensors.
+    """
+    if x.ndim != 4:
+        raise ValueError(f"Expected 4D tensor, got shape={tuple(x.shape)}")
+
+    # Preferred external layout: [B, 1, H, W]
+    if x.shape[1] == 1:
+        return x.transpose(0, 1)
+
+    # Legacy layout: [1, B, H, W]
+    if x.shape[0] == 1:
+        return x
+
+    raise ValueError(f"Ambiguous tensor layout {tuple(x.shape)}. Expected [B,1,H,W] (preferred) or [1,B,H,W] (legacy).")
+
+
+def _to_external_bchw(x: torch.Tensor) -> torch.Tensor:
+    """Convert internal [C,B,H,W] layout back to external [B,C,H,W]."""
+    if x.ndim != 4:
+        raise ValueError(f"Expected 4D tensor, got shape={tuple(x.shape)}")
+    return x.transpose(0, 1)
+
+
 class PBCT_carterbox:
     def __init__(self, det_count, view_available, view_full_num, recon_size):
         """
@@ -29,54 +56,60 @@ class PBCT_carterbox:
     # * Main
     # A: Radon Transform
     def A(self, x):
+        x = _to_internal_cbhw(x)
         if x.shape[2] != self.det_count:
             x = center_pad_nd(x, (self.det_count, self.det_count), value=0.0).float()
 
         sino = self.radon_LV.forward(x)
-        return sino
+        return _to_external_bchw(sino)
 
     # A_T
     def A_T(self, y):
+        y = _to_internal_cbhw(y)
         recon = self.radon_LV.backward(y)
         recon = center_unpad_nd(recon, (self.recon_size, self.recon_size))
 
         norm_factor = PI.item() / (2 * len(self.angles_LV))
         recon = recon * norm_factor
 
-        return recon
+        return _to_external_bchw(recon)
 
     # Moore–Penrose （pseudo-inverse）: FBP
     def A_dagger(self, y, filter_name="ramp"):
+        y = _to_internal_cbhw(y)
         sino_filtered = self.radon_LV.filter_sinogram(y, filter_name=filter_name)
         recon = self.radon_LV.backward(sino_filtered)
         recon = center_unpad_nd(recon, (self.recon_size, self.recon_size))
 
-        return recon
+        return _to_external_bchw(recon)
 
     # * ------------------------------------------
 
     def A_FV(self, x):
+        x = _to_internal_cbhw(x)
         if x.shape[2] != self.det_count:
             x = center_pad_nd(x, (self.det_count, self.det_count), value=0.0)
 
         sino = self.radon_FV.forward(x)
-        return sino
+        return _to_external_bchw(sino)
 
     def FBP_FV(self, y, filter_name="ramp"):
+        y = _to_internal_cbhw(y)
         sino_filtered = self.radon_FV.filter_sinogram(y, filter_name=filter_name)
         recon = self.radon_FV.backward(sino_filtered)
         recon = center_unpad_nd(recon, (self.recon_size, self.recon_size))
 
-        return recon
+        return _to_external_bchw(recon)
 
     def BP_FV(self, y):
+        y = _to_internal_cbhw(y)
         recon = self.radon_FV.backward(y)
         recon = center_unpad_nd(recon, (self.recon_size, self.recon_size))
 
         norm_factor = PI.item() / (2 * len(self.angles_FV))
         recon = recon * norm_factor
 
-        return recon
+        return _to_external_bchw(recon)
 
     def get_angles(self):
         return self.angles_FV, self.angles_LV
@@ -104,54 +137,60 @@ class FBCT_carterbox:
     # * Main
     # A: Radon Transform
     def A(self, x):
+        x = _to_internal_cbhw(x)
         if x.shape[2] != self.det_count:
             x = center_pad_nd(x, (self.det_count, self.det_count), value=0.0).float()
 
         sino = self.radon_LV.forward(x)
-        return sino
+        return _to_external_bchw(sino)
 
     # A_T
     def A_T(self, y):
+        y = _to_internal_cbhw(y)
         recon = self.radon_LV.backward(y)
         recon = center_unpad_nd(recon, (self.recon_size, self.recon_size))
 
         norm_factor = PI.item() / (2 * len(self.angles_LV))
         recon = recon * norm_factor
 
-        return recon
+        return _to_external_bchw(recon)
 
     # Moore–Penrose （pseudo-inverse）: FBP
     def A_dagger(self, y, filter_name="ramp"):
+        y = _to_internal_cbhw(y)
         sino_filtered = self.radon_LV.filter_sinogram(y, filter_name=filter_name)
         recon = self.radon_LV.backward(sino_filtered)
         recon = center_unpad_nd(recon, (self.recon_size, self.recon_size))
 
-        return recon
+        return _to_external_bchw(recon)
 
     # * ------------------------------------------
 
     def A_FV(self, x):
+        x = _to_internal_cbhw(x)
         if x.shape[2] != self.det_count:
             x = center_pad_nd(x, (self.det_count, self.det_count), value=0.0)
 
         sino = self.radon_FV.forward(x)
-        return sino
+        return _to_external_bchw(sino)
 
     def FBP_FV(self, y, filter_name="ramp"):
+        y = _to_internal_cbhw(y)
         sino_filtered = self.radon_FV.filter_sinogram(y, filter_name=filter_name)
         recon = self.radon_FV.backward(sino_filtered)
         recon = center_unpad_nd(recon, (self.recon_size, self.recon_size))
 
-        return recon
+        return _to_external_bchw(recon)
 
     def BP_FV(self, y):
+        y = _to_internal_cbhw(y)
         recon = self.radon_FV.backward(y)
         recon = center_unpad_nd(recon, (self.recon_size, self.recon_size))
 
         norm_factor = PI.item() / (2 * len(self.angles_FV))
         recon = recon * norm_factor
 
-        return recon
+        return _to_external_bchw(recon)
 
     def get_angles(self):
         return self.angles_FV, self.angles_LV
@@ -217,20 +256,24 @@ class CBCT_carterbox:
         )
 
     def A(self, x):
+        x = _to_internal_cbhw(x)
         sino = self.radon_LV.forward(x)
-        return sino
+        return _to_external_bchw(sino)
 
     def A_T(self, y):
+        y = _to_internal_cbhw(y)
         recon = self.radon_LV.backward(y)
-        return recon
+        return _to_external_bchw(recon)
 
     def A_FV(self, x: torch.Tensor):
+        x = _to_internal_cbhw(x)
         sino = self.radon_FV.forward(x)
-        return sino
+        return _to_external_bchw(sino)
 
     def BP_FV(self, y):
+        y = _to_internal_cbhw(y)
         recon = self.radon_FV.backward(y)
-        return recon
+        return _to_external_bchw(recon)
 
     def get_angles(self):
         return self.angles_FV, self.angles_LV

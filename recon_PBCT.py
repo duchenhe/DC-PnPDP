@@ -7,7 +7,6 @@ import numpy as np
 import torch
 import yaml
 
-import dnnlib
 import utils
 import utils.args
 import utils.data
@@ -56,8 +55,6 @@ def build_problem_tag(args):
     ]
     if getattr(args, "num_cg", 0):
         parts.append(f"nCG-{args.num_cg}")
-    if getattr(args, "w_dps", 0):
-        parts.append(f"wDPS-{args.w_dps}")
     if getattr(args, "w_tik", 0):
         parts.append(f"wTIK-{args.w_tik}")
     if getattr(args, "w_dz", 0):
@@ -122,9 +119,8 @@ def compute_fbp_and_cg(measure_model, measurement, projections):
 
 def load_model(ckpt_filename, device):
     print(f'Loading network from "{ckpt_filename}"...')
-    with dnnlib.util.open_url(ckpt_filename, verbose=True) as f:
-        net = pickle.load(f)["ema"].to(device)
-    return net
+    with open(ckpt_filename, "rb") as f:
+        return pickle.load(f)["ema"].to(device)
 
 
 def run_reconstruction(args, net, save_root, measurement, fbp_lv, cg_lv, measure_model):
@@ -140,7 +136,7 @@ def run_reconstruction(args, net, save_root, measurement, fbp_lv, cg_lv, measure
     }
     recon_kwargs = {
         "latents": latents,
-        "x_init": fbp_lv.clip(-1, 1).squeeze().unsqueeze(1),
+        "x_init": fbp_lv.clip(-1, 1),
         "y": measurement,
         "A": measure_model.A,
         "AT": measure_model.A_T,
@@ -151,14 +147,14 @@ def run_reconstruction(args, net, save_root, measurement, fbp_lv, cg_lv, measure
     if args.method == "edm":
         print("Using edm sampling.")
         sampler = base.BaseEDMSampler(**sampler_kwargs)
-        x = sampler.sample(latents, x_init=cg_lv.squeeze().unsqueeze(1))
+        x = sampler.sample(latents, x_init=cg_lv)
     elif args.method == "DiffPIR":
         print("Run DiffPIR!")
         sampler = DiffPIR.DiffPIR(**sampler_kwargs)
         x = sampler.sample(**recon_kwargs)
     elif args.method == "DCPnPDP":
         print("Run Dual Coupled DiffPIR!")
-        sampler = DCPnPDP.DiffPIRDC(**sampler_kwargs)
+        sampler = DCPnPDP.DCPnPDP(**sampler_kwargs)
         x = sampler.sample(**recon_kwargs)
     else:
         raise ValueError(f"Invalid method: {args.method}.")

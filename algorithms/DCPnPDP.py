@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 import torch
 import tqdm
 
@@ -5,8 +7,10 @@ import algorithms.utils as autils
 from algorithms.base import BaseEDMSampler
 from algorithms.SH import spectral_homogenization_2d_batched
 
+LinearOp = Callable[[torch.Tensor], torch.Tensor]
 
-class DiffPIRDC(BaseEDMSampler):
+
+class DCPnPDP(BaseEDMSampler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -15,12 +19,15 @@ class DiffPIRDC(BaseEDMSampler):
         latents,
         x_init,
         class_labels=None,
-        y=None,
-        A=None,
-        AT=None,
+        y: torch.Tensor | None = None,
+        A: LinearOp | None = None,
+        AT: LinearOp | None = None,
         num_cg=10,
         w_tik=0.0,
     ):
+        if y is None or A is None or AT is None:
+            raise ValueError("`y`, `A`, and `AT` must be provided for DiffPIRDC sampling.")
+
         net = self.net
         t_steps = self.get_t_steps(latents)
         print(t_steps, t_steps.shape)
@@ -41,7 +48,7 @@ class DiffPIRDC(BaseEDMSampler):
         u = torch.zeros_like(x)
         v = torch.zeros_like(x)
 
-        v = x_init.movedim(0, 1)
+        v = x_init
 
         for i in pbar:  # 0, ..., N-1
             t_cur = t_steps[i]
@@ -62,8 +69,8 @@ class DiffPIRDC(BaseEDMSampler):
             # if i > 0:
             if i != len(t_steps) - 1:
                 x_cur, info = spectral_homogenization_2d_batched(
-                    v=x_cur.movedim(0, 1),
-                    x_hat=v.movedim(0, 1),
+                    v=x_cur,
+                    x_hat=v,
                     sigma=t_cur,
                     batch_size=50,
                     smooth_ks=7,
@@ -72,8 +79,6 @@ class DiffPIRDC(BaseEDMSampler):
                 )
 
             v = self._denoise_batchwise(net, x_cur, t_cur, class_labels, batch_size=16)
-
-            v = v.movedim(0, 1)
 
             # *----------------------------------------------------------------------------
 
