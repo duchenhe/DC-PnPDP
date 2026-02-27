@@ -1,6 +1,6 @@
 # Plug-and-Play Diffusion Meets ADMM: Dual-Variable Coupling for Robust Medical Image Reconstruction 🚀
 
-[![arXiv](https://img.shields.io/badge/arXiv-2602.04162-B31B1B.svg)](https://arxiv.org/abs/2602.04162)
+[![arXiv](https://img.shields.io/badge/arXiv-2602.23214-B31B1B.svg)](https://arxiv.org/abs/2602.23214)
 
 ---
 
@@ -136,10 +136,10 @@ Results are saved to a timestamped subdirectory:
 If you find this work useful, please cite:
 
 ```bibtex
-@article{chen2026dcpnpdp,
+@article{du2026dcpnpdp,
   title   = {Plug-and-Play Diffusion Meets ADMM: Dual-Variable Coupling for Robust Medical Image Reconstruction},
   author  = {Du, Chenhe and Tian, Xuanyu and Wu, Qing and Liu, Muyu and Yu, Jingyi and Wei, Hongjiang and Zhang, Yuyao},
-  journal = {arXiv preprint arXiv:2602.},
+  journal = {arXiv preprint arXiv:2602.23214},
   year    = {2026}
 }
 ```
