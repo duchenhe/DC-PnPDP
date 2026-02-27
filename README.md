@@ -6,7 +6,7 @@
 
 ## 📖 Overview
 
-![teaser](./figures/algorithm.png)
+<img src="./figures/algorithm.png" alt="Teaser" width="50%"/>
 
 Plug-and-Play diffusion prior (PnPDP) methods are powerful for solving inverse problems, yet conventional HQS / proximal-style solvers are stateless and can converge to biased solutions under severe measurement corruption. We introduce two complementary ideas:
 
