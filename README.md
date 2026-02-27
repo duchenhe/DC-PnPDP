@@ -6,6 +6,8 @@
 
 ## 📖 Overview
 
+![teaser](./figures/algorithm.png)
+
 Plug-and-Play diffusion prior (PnPDP) methods are powerful for solving inverse problems, yet conventional HQS / proximal-style solvers are stateless and can converge to biased solutions under severe measurement corruption. We introduce two complementary ideas:
 
 - 🔗 **Dual-Coupled PnP Diffusion (DCPnPDP)** — reintroduces ADMM dual variables as integral feedback, enforcing stronger measurement consistency throughout the diffusion sampling trajectory.
@@ -18,9 +20,9 @@ This repository provides a complete **parallel-beam CT (PBCT)** reconstruction p
 ```text
 .
 ├── algorithms/        # DCPnPDP, DiffPIR, SH, and base sampler
+├── checkpoints/       # Pretrained model checkpoints (not included; see checkpoints/CHECKPOINTS.md)
 ├── physics/           # CT forward / adjoint / FBP operators (PBCT)
 ├── utils/             # Argument parsing, data I/O, metrics, scheduler
-├── dnnlib/            # EDM-style checkpoint loading utilities
 ├── torch_utils/       # Auxiliary modules from the EDM codebase
 ├── recon_PBCT.py      # Main reconstruction entry point
 └── recon_PBCT.sh      # Example run script
@@ -31,9 +33,6 @@ This repository provides a complete **parallel-beam CT (PBCT)** reconstruction p
 **Requirements:**
 
 ```bash
-conda create -n dcpnpdp python=3.10 -y
-conda activate dcpnpdp
-
 # PyTorch — match the command to your CUDA version (https://pytorch.org)
 pip install torch torchvision
 
@@ -41,15 +40,14 @@ pip install torch torchvision
 pip install numpy pyyaml tqdm requests SimpleITK torchmetrics lpips
 
 # CT operators — install according to your CUDA setup
-# • astra-toolbox  (https://github.com/astra-toolbox/astra-toolbox)
-# • torch-radon    (https://github.com/carterbox/torch-radon)
+# torch-radon    (https://github.com/carterbox/torch-radon)
 ```
 
 ## 🤖 Pretrained Checkpoint
 
-We provide a pretrained unconditional diffusion model (trained on 100K+ abdominal CT slices) to support reproducibility and follow-up research. See [`CHECKPOINTS.md`](./CHECKPOINTS.md) for the download link and training details.
+We provide a pretrained unconditional diffusion model (trained on 100K+ abdominal CT slices) to support reproducibility and follow-up research. See [`CHECKPOINTS.md`](./checkpoints/CHECKPOINTS.md) for the download link and training details.
 
-Place the downloaded `.pkl` file at a path of your choice (e.g., `./checkpoint/edm/network-snapshot-003882.pkl`) and update `recon_PBCT.sh` accordingly.
+Place the downloaded `.pkl` file at a path of your choice (e.g., `./checkpoints/edm/network-snapshot-003882.pkl`) and update `recon_PBCT.sh` accordingly.
 
 ## 📂 Data Preparation
 
@@ -85,9 +83,7 @@ python recon_PBCT.py \
   --NFE 50 \
   --num-cg 50 \
   --w-tik 0 \
-  --noise-control None \
   --use-init True \
-  --renoise-method DDPM \
   --sigma-max 2 \
   --checkpoint-path /path/to/network-snapshot.pkl \
   --save_dir ./results/

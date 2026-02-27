@@ -1,4 +1,3 @@
-import astra
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -91,49 +90,6 @@ def add_sino_noise_guassian(measurement, level, noise_type="gaussian"):
     out = torch.tensor(out).unsqueeze(0).unsqueeze(0).float().to(measurement.device)
 
     return out, SNR
-
-
-def fdk_reconstruct(gt_np, proj_geom, vol_geom):
-    proj_id, sino = astra.create_sino3d_gpu(gt_np, proj_geom, vol_geom)
-    rec_id = astra.data3d.create("-vol", vol_geom)
-
-    cfg = astra.astra_dict("FDK_CUDA")
-    cfg["ReconstructionDataId"] = rec_id
-    cfg["ProjectionDataId"] = proj_id
-    alg_id = astra.algorithm.create(cfg)
-
-    astra.algorithm.run(alg_id, 1)
-
-    recon = astra.data3d.get(rec_id)
-
-    astra.algorithm.delete(alg_id)
-    astra.data3d.delete(proj_id)
-    astra.data3d.delete(rec_id)
-
-    return recon
-
-
-def astra_IR(gt_np, proj_geom, vol_geom, recon_algo="CGLS3D_CUDA", iter=10):
-    proj_id, sino = astra.create_sino3d_gpu(gt_np, proj_geom, vol_geom)
-    rec_id = astra.data3d.create("-vol", vol_geom)
-
-    cfg = astra.astra_dict(recon_algo)
-    cfg["ReconstructionDataId"] = rec_id
-    cfg["ProjectionDataId"] = proj_id
-    if recon_algo == "SIRT3D_CUDA":
-        cfg["option"] = {"MinConstraint": -1.0}
-
-    alg_id = astra.algorithm.create(cfg)
-
-    astra.algorithm.run(alg_id, iter)
-
-    recon = astra.data3d.get(rec_id)
-
-    astra.algorithm.delete(alg_id)
-    astra.data3d.delete(proj_id)
-    astra.data3d.delete(rec_id)
-
-    return recon
 
 
 def get_orientation_code(img: sitk.Image) -> str:
