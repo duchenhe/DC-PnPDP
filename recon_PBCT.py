@@ -11,7 +11,7 @@ import utils
 import utils.args
 import utils.data
 import utils.result
-from algorithms import DCPnPDP, DiffPIR, base
+from algorithms import DCPnPDP, DiffPIR, SITCOM, base
 from physics.ct import PBCT_carterbox
 
 
@@ -155,6 +155,10 @@ def run_reconstruction(args, net, save_root, measurement, fbp_lv, cg_lv, measure
     elif args.method == "DCPnPDP":
         print("Run Dual Coupled DiffPIR!")
         sampler = DCPnPDP.DCPnPDP(**sampler_kwargs)
+        x = sampler.sample(**recon_kwargs)
+    elif args.method == "SITCOM":
+        print("Run SITCOM!")
+        sampler = SITCOM.SITCOM(**sampler_kwargs)
         x = sampler.sample(**recon_kwargs)
     else:
         raise ValueError(f"Invalid method: {args.method}.")

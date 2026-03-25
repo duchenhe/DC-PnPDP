@@ -1,6 +1,7 @@
 from . import (
     DiffPIR,
     DCPnPDP,
+    SITCOM,
     base,
     utils,
 )
@@ -8,6 +9,7 @@ from . import (
 __all__ = [
     "DiffPIR",
     "DCPnPDP",
+    "SITCOM",
     "base",
     "utils",
 ]
