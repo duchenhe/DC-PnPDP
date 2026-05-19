@@ -14,10 +14,17 @@ def str2bool(v):
 
 def build_parser():
     parser = argparse.ArgumentParser(description="DIS.")
+    supported_methods = ["DDS", "DCPnPDP", "DDNM", "DiffPIR", "SITCOM", "DAPS", "edm"]
 
     # base
     parser.add_argument("--task", type=str, default="LACT", help="reconstruction task. Default: LACT.")
-    parser.add_argument("--method", type=str, default="DDS", help="Reconstruction method. Default: DDS.")
+    parser.add_argument(
+        "--method",
+        type=str,
+        default="DDS",
+        choices=supported_methods,
+        help="Reconstruction method. Default: DDS.",
+    )
     parser.add_argument("--gpu", type=int, default=0, help="GPU device ID to use. Default: 0.")
 
     # data
@@ -34,15 +41,18 @@ def build_parser():
     parser.add_argument("--sino-noise", type=float, default=0, help="Sinogram noise level. Default: 0.")
     parser.add_argument("--degree", type=int, default=90, help="Available projection degree. Default: 90.")
     parser.add_argument("--recon-size", type=int, default=256, help="Reconstruction image size. Default: 256.")
-    parser.add_argument("--use-init", type=str2bool, default=False, help="Whether to use the initial image")
+    parser.add_argument(
+        "--use-init",
+        type=str2bool,
+        default=False,
+        help="Deprecated compatibility option; ignored.",
+    )
     parser.add_argument("--save_dir", type=str, default="results", help="Path to save results.")
 
     # algorithm
     parser.add_argument("--NFE", type=int, default=1000, help="Run steps for the algorithm. Default: 1000.")
     parser.add_argument("--num-cg", type=int, default=5, help="Number of CG iterations. Default: 5.")
-    parser.add_argument("--w-dps", type=float, default=0, help="DPS regularization weight. Default: 0.025.")
     parser.add_argument("--w-tik", type=float, default=0, help="Tikhonov regularization weight. Default: 1.")
-    parser.add_argument("--w-dz", type=float, default=0, help="TV regularization on Z axis weight. Default: 1.")
     parser.add_argument("--sigma-max", type=float, default=378, help="The maximum sigma value")
     parser.add_argument("--sigma-min", type=float, default=0.01, help="The minimum sigma value")
     parser.add_argument(
@@ -91,27 +101,6 @@ def build_parser():
         default=16,
         help="Batch size for DAPS ODE denoiser evaluation.",
     )
-    parser.add_argument("--red-lr", type=float, default=0.5, help="RED-Diff Adam learning rate.")
-    parser.add_argument("--red-lambda", type=float, default=None, help="RED-Diff denoiser regularization weight.")
-    parser.add_argument(
-        "--red-obs-weight",
-        type=float,
-        default=None,
-        help="RED-Diff observation consistency weight. Falls back to --w-dps or 1.0.",
-    )
-    parser.add_argument(
-        "--red-lambda-schedule",
-        type=str,
-        default="constant",
-        help="RED-Diff denoiser-weight schedule: constant, linear, sqrt, square, log, trunc_linear, power2over3.",
-    )
-    parser.add_argument(
-        "--red-denoise-batch-size",
-        type=int,
-        default=16,
-        help="Batch size for RED-Diff denoiser evaluation.",
-    )
-
     parser.add_argument(
         "--noise-control", type=str, default=None, help="Type of noise to add to sinogram. Default: gaussian."
     )
@@ -121,8 +110,7 @@ def build_parser():
         default="../checkpoint/checkpoint.pth",
         help="The path to the checkpoint",
     )
-    parser.add_argument("--config-path", type=str, default="configs/config.yaml", help="The path to the config file")
-    parser.add_argument("--renoise-method", type=str, default="DDPM", help="The re-noising method")
+    parser.add_argument("--renoise-method", type=str, default="DDPM", help="Deprecated compatibility option; ignored.")
     parser.add_argument(
         "--metric-axes",
         type=str,
@@ -131,17 +119,10 @@ def build_parser():
         help="Which axes to use when computing slice metrics: axial only, or all three axes.",
     )
     parser.add_argument(
-        "--save-residual-history",
+        "--skip-metrics",
         type=str2bool,
-        default=True,
-        help="Whether to save per-iteration convergence residuals for methods that support it.",
+        default=False,
+        help="Skip PSNR/SSIM/LPIPS evaluation after saving the reconstruction.",
     )
-    parser.add_argument(
-        "--save-runtime-profile",
-        type=str2bool,
-        default=True,
-        help="Whether to save per-iteration wall-clock and memory profiling for methods that support it.",
-    )
-
     args = parser.parse_args()
     return args

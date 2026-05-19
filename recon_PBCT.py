@@ -14,7 +14,7 @@ import utils
 import utils.args
 import utils.data
 import utils.result
-from algorithms import DAPS, DCPnPDP, DDNM, DDS, DiffPIR, REDDiff, SITCOM, base
+from algorithms import DAPS, DCPnPDP, DDNM, DDS, DiffPIR, SITCOM, base
 from physics.ct import PBCT_carterbox
 
 from rich import print
@@ -55,7 +55,6 @@ def build_problem_tag(args):
         f"{args.slice_end:04d}",
         f"{args.slice_step:03d}",
         f"{args.NFE}",
-        f"{args.use_init}",
     ]
     parts.append(f"sigMin-{args.sigma_min:g}")
     parts.append(f"sigMax-{args.sigma_max:g}")
@@ -63,16 +62,7 @@ def build_problem_tag(args):
         parts.append(f"nCG-{args.num_cg}")
     if getattr(args, "w_tik", 0):
         parts.append(f"wTIK-{args.w_tik}")
-    if getattr(args, "w_dz", 0):
-        parts.append(f"wDZ-{args.w_dz}")
     parts.append(f"metricAxes-{args.metric_axes}")
-    if args.method == "REDDiff":
-        if getattr(args, "red_obs_weight", None) is not None:
-            parts.append(f"redObs-{args.red_obs_weight}")
-        if getattr(args, "red_lambda", None) is not None:
-            parts.append(f"redLam-{args.red_lambda}")
-        parts.append(f"redLR-{args.red_lr}")
-        parts.append(f"redSched-{args.red_lambda_schedule}")
     if args.method == "DAPS":
         parts.append(f"dapsODE-{args.daps_diffusion_num_steps}")
         parts.append(f"dapsODESigMin-{args.daps_diffusion_sigma_min}")
@@ -86,7 +76,6 @@ def build_problem_tag(args):
         parts.append(f"sitClamp-{args.sitcom_clamp_denoised}")
 
     parts.append(str(args.noise_control))
-    parts.append(str(args.renoise_method))
 
     return "_".join(map(str, parts))
 
@@ -126,13 +115,6 @@ def print_run_header(args, save_root: Path, problem_tag: str):
         print("🧮 DDS: uses EDM denoiser + CG-based data consistency with stochastic re-noising.")
     elif args.method == "DDNM":
         print("🧮 DDNM-SIRT: uses SIRT pseudo-inverse correction with stochastic re-noising.")
-    elif args.method == "REDDiff":
-        print(
-            f"🧮 RED-Diff: lr=[bold]{args.red_lr:g}[/bold], "
-            f"lambda=[bold]{args.red_lambda if args.red_lambda is not None else 'auto'}[/bold], "
-            f"obs=[bold]{args.red_obs_weight if args.red_obs_weight is not None else 'auto'}[/bold], "
-            f"schedule=[bold]{args.red_lambda_schedule}[/bold]"
-        )
     elif args.method == "SITCOM":
         print(
             f"🧮 SITCOM: lr=[bold]{args.sitcom_learning_rate:g}[/bold], "
@@ -218,8 +200,6 @@ def run_reconstruction(args, net, save_root, measurement, fbp_lv, cg_lv, measure
     # single-slice chunks would collapse the batch dimension and break the U-Net
     # input layout.
     latents = torch.randn_like(cg_lv)
-    red_obs_weight = args.red_obs_weight if args.red_obs_weight is not None else (args.w_dps if args.w_dps > 0 else 1.0)
-    red_lambda = args.red_lambda if args.red_lambda is not None else (args.w_tik if args.w_tik > 0 else 0.25)
 
     sampler_kwargs = {
         "net": net,
@@ -229,8 +209,6 @@ def run_reconstruction(args, net, save_root, measurement, fbp_lv, cg_lv, measure
         "save_path": save_root,
         "save_intermediates": False,
         "noise_control": args.noise_control,
-        "save_residual_history": args.save_residual_history,
-        "save_runtime_profile": args.save_runtime_profile,
     }
     recon_kwargs = {
         "latents": latents,
@@ -285,17 +263,6 @@ def run_reconstruction(args, net, save_root, measurement, fbp_lv, cg_lv, measure
             denoise_batch_size=args.daps_denoise_batch_size,
         )
         x = sampler.sample(**recon_kwargs)
-    elif args.method == "REDDiff":
-        print("🧪 Running RED-Diff...")
-        sampler = REDDiff.REDDiff(**sampler_kwargs)
-        x = sampler.sample(
-            **recon_kwargs,
-            observation_weight=red_obs_weight,
-            base_lambda=red_lambda,
-            learning_rate=args.red_lr,
-            lambda_schedule=args.red_lambda_schedule,
-            denoise_batch_size=args.red_denoise_batch_size,
-        )
     else:
         raise ValueError(f"Invalid method: {args.method}.")
 
@@ -406,7 +373,10 @@ def main(args):
     utils.result.save_nii_image(x, os.path.join(save_root, "recon.nii.gz"), sitk_info=metainfo)
     print(f"📝 Saved reconstruction to [bold]{save_root / 'recon.nii.gz'}[/bold]")
 
-    compute_and_save_metrics(save_root, fbp_lv, x, gt_image, metainfo, d, h, w, metric_axes=args.metric_axes)
+    if args.skip_metrics:
+        print("[yellow]Skipping reconstruction metrics (--skip-metrics=True).[/yellow]")
+    else:
+        compute_and_save_metrics(save_root, fbp_lv, x, gt_image, metainfo, d, h, w, metric_axes=args.metric_axes)
     print("")
     print(f"[bold green]✅ Finished. Results saved under[/bold green] [bold]{save_root}[/bold]")
 

@@ -38,5 +38,6 @@ results/
 cal*.py
 plot*.py
 recon_PBCT_*.sh
+# !recon_PBCT_smoke_all_methods.sh
 
 logs*/

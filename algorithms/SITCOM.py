@@ -48,14 +48,10 @@ class SITCOM(BaseEDMSampler):
         optimizer = torch.optim.Adam([x_opt], lr=learning_rate)
         anchor = x_start.detach()
         loss_value = float("nan")
-        denoise_time_total = 0.0
-        device = x_start.device
-        dc_start = self._timer_start(device)
 
         for _ in range(num_steps):
             optimizer.zero_grad(set_to_none=True)
 
-            denoise_start = self._timer_start(device)
             x0_pred = self._denoise_with_grad_batchwise(
                 net,
                 x_opt,
@@ -63,7 +59,6 @@ class SITCOM(BaseEDMSampler):
                 class_labels,
                 batch_size=denoise_batch_size,
             )
-            denoise_time_total += self._timer_end(denoise_start, device)
             if clamp_denoised:
                 x0_pred = x0_pred.clamp(-1, 1)
 
@@ -78,17 +73,11 @@ class SITCOM(BaseEDMSampler):
             loss_value = loss.detach().item()
 
         with torch.no_grad():
-            denoise_start = self._timer_start(device)
             x0_pred = self._denoise_batchwise(net, x_opt, t_cur, class_labels, batch_size=denoise_batch_size)
-            denoise_time_total += self._timer_end(denoise_start, device)
             if clamp_denoised:
                 x0_pred = x0_pred.clamp(-1, 1)
 
-        dc_time = self._timer_end(dc_start, device)
-        return x_opt.detach(), x0_pred.detach(), loss_value, {
-            "dc_time_s": dc_time,
-            "denoise_time_s": denoise_time_total,
-        }
+        return x_opt.detach(), x0_pred.detach(), loss_value
 
     def sample(
         self,
@@ -122,28 +111,14 @@ class SITCOM(BaseEDMSampler):
         x_t_list = []
         d_cur_list = []
         denoised_list = []
-        runtime_history = {
-            "method": "SITCOM",
-            "definitions": {
-                "outer_iter_time_s": "Wall-clock time of one outer iteration.",
-                "denoise_time_s": "Accumulated denoiser forward time inside the SITCOM inner optimization and final denoise.",
-                "dc_time_s": "Total time spent in the SITCOM inner optimization sub-problem.",
-                "sh_time_s": "Spectral homogenization time. Always zero for SITCOM.",
-                "other_time_s": "Outer iteration time minus the SITCOM inner optimization time.",
-                "peak_memory_mb": "Peak GPU memory allocated during the outer iteration.",
-            },
-            "records": [],
-        }
 
         pbar = tqdm.tqdm(range(len(t_steps) - 1), total=len(t_steps) - 1, colour="blue")
 
         for i in pbar:
             t_cur, t_next = t_steps[i], t_steps[i + 1]
             x_cur = x_next
-            self._reset_peak_memory_stats(x_cur.device)
-            outer_start = self._timer_start(x_cur.device)
 
-            _, x0_cur, loss_value, timing = self._optimize_noisy_sample(
+            _, x0_cur, loss_value = self._optimize_noisy_sample(
                 x_start=x_cur,
                 t_cur=t_cur,
                 net=net,
@@ -172,22 +147,7 @@ class SITCOM(BaseEDMSampler):
             else:
                 x_next = x0_cur
 
-            outer_time = self._timer_end(outer_start, x_cur.device)
-            runtime_history["records"].append(
-                {
-                    "iteration": i + 1,
-                    "sigma": float(t_cur),
-                    "outer_iter_time_s": outer_time,
-                    "denoise_time_s": timing["denoise_time_s"],
-                    "dc_time_s": timing["dc_time_s"],
-                    "sh_time_s": 0.0,
-                    "other_time_s": max(outer_time - timing["dc_time_s"], 0.0),
-                    "peak_memory_mb": self._get_peak_memory_mb(x_cur.device),
-                }
-            )
-
             pbar.set_postfix({"t": i, "σ_t": f"{float(t_cur):.4f}", "dc": f"{loss_value:.3e}"})
 
         self.save_intermediate_results(x_t_list, d_cur_list, denoised_list)
-        self._save_runtime_profile(runtime_history)
         return x_next
