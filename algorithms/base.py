@@ -1,5 +1,10 @@
+import csv
+import time
+from pathlib import Path
+
 import numpy as np
 import torch
+import yaml
 from utils.result import save_nii_image
 import tqdm
 import algorithms.utils as autils
@@ -40,6 +45,8 @@ class BaseEDMSampler:
         save_path=None,
         save_intermediates=False,
         noise_control=None,
+        save_residual_history=False,
+        save_runtime_profile=False,
     ):
         self.net = net
         self.num_steps = num_steps
@@ -53,6 +60,10 @@ class BaseEDMSampler:
         self.save_path = save_path
         self.save_intermediates = save_intermediates
         self.noise_control = noise_control
+        self.save_residual_history = save_residual_history
+        self.save_runtime_profile = save_runtime_profile
+        self.residual_history = None
+        self.runtime_profile = None
 
     def get_t_steps(self, latents):
         """Define the time steps for the EDM schedule."""
@@ -121,6 +132,121 @@ class BaseEDMSampler:
         except Exception:
             # If estimation fails, return a conservative default.
             return min(25, x.shape[0])
+
+    def _l2_norm(self, x: torch.Tensor) -> float:
+        if x.requires_grad:
+            x = x.detach()
+        x = x.float()
+        return torch.linalg.vector_norm(x.reshape(-1)).item()
+
+    def _measurement_residual(self, x: torch.Tensor, y: torch.Tensor, A):
+        with torch.no_grad():
+            residual = A(x) - y
+        residual_l2 = self._l2_norm(residual)
+        y_l2 = max(self._l2_norm(y), 1e-12)
+        return residual_l2, residual_l2 / y_l2
+
+    def _save_residual_history(self, history: dict, filename_prefix: str = "residual_history"):
+        self.residual_history = history
+
+        if not self.save_residual_history or self.save_path is None:
+            return
+
+        records = history.get("records", [])
+        if not records:
+            return
+
+        save_dir = Path(self.save_path)
+        save_dir.mkdir(parents=True, exist_ok=True)
+
+        yaml_path = save_dir / f"{filename_prefix}.yaml"
+        csv_path = save_dir / f"{filename_prefix}.csv"
+
+        serializable_history = dict(history)
+        serializable_history["records"] = [
+            {k: (float(v) if isinstance(v, (np.floating, np.float32, np.float64)) else v) for k, v in record.items()}
+            for record in records
+        ]
+
+        with open(yaml_path, "w") as f:
+            yaml.dump(serializable_history, f, sort_keys=False)
+
+        fieldnames = list(records[0].keys())
+        with open(csv_path, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            for record in records:
+                writer.writerow(record)
+
+    def _cuda_sync(self, device=None):
+        if not torch.cuda.is_available():
+            return
+        if device is None:
+            torch.cuda.synchronize()
+        else:
+            torch.cuda.synchronize(device)
+
+    def _timer_start(self, device=None):
+        self._cuda_sync(device)
+        return time.perf_counter()
+
+    def _timer_end(self, start_time, device=None):
+        self._cuda_sync(device)
+        return time.perf_counter() - start_time
+
+    def _reset_peak_memory_stats(self, device):
+        if torch.cuda.is_available() and device.type == "cuda":
+            torch.cuda.reset_peak_memory_stats(device)
+
+    def _get_peak_memory_mb(self, device):
+        if torch.cuda.is_available() and device.type == "cuda":
+            return torch.cuda.max_memory_allocated(device) / (1024**2)
+        return 0.0
+
+    def _save_runtime_profile(self, history: dict, filename_prefix: str = "runtime_profile"):
+        self.runtime_profile = history
+
+        if not self.save_runtime_profile or self.save_path is None:
+            return
+
+        records = history.get("records", [])
+        if not records:
+            return
+
+        save_dir = Path(self.save_path)
+        save_dir.mkdir(parents=True, exist_ok=True)
+
+        summary = {
+            "method": history.get("method"),
+            "num_iterations": len(records),
+            "total_outer_time_s": sum(record.get("outer_iter_time_s", 0.0) for record in records),
+            "mean_outer_time_s": float(np.mean([record.get("outer_iter_time_s", 0.0) for record in records])),
+            "mean_denoise_time_s": float(np.mean([record.get("denoise_time_s", 0.0) for record in records])),
+            "mean_dc_time_s": float(np.mean([record.get("dc_time_s", 0.0) for record in records])),
+            "mean_sh_time_s": float(np.mean([record.get("sh_time_s", 0.0) for record in records])),
+            "mean_other_time_s": float(np.mean([record.get("other_time_s", 0.0) for record in records])),
+            "max_memory_mb": max(record.get("peak_memory_mb", 0.0) for record in records),
+        }
+        history["summary"] = summary
+
+        yaml_path = save_dir / f"{filename_prefix}.yaml"
+        csv_path = save_dir / f"{filename_prefix}.csv"
+
+        serializable_history = dict(history)
+        serializable_history["records"] = [
+            {k: (float(v) if isinstance(v, (np.floating, np.float32, np.float64)) else v) for k, v in record.items()}
+            for record in records
+        ]
+
+        with open(yaml_path, "w") as f:
+            yaml.dump(serializable_history, f, sort_keys=False)
+
+        fieldnames = list(records[0].keys())
+        with open(csv_path, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            for record in records:
+                writer.writerow(record)
 
     def sample(
         self,

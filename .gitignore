@@ -33,3 +33,10 @@ dist/
 output/
 # checkpoints/
 results/
+
+
+cal*.py
+plot*.py
+recon_PBCT_*.sh
+
+logs*/

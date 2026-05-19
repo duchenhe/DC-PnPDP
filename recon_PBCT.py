@@ -1,6 +1,9 @@
 import datetime
+import io
 import os
 import pickle
+import warnings
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 import numpy as np
@@ -11,9 +14,10 @@ import utils
 import utils.args
 import utils.data
 import utils.result
-from algorithms import DCPnPDP, DiffPIR, SITCOM, base
+from algorithms import DAPS, DCPnPDP, DDNM, DDS, DiffPIR, REDDiff, SITCOM, base
 from physics.ct import PBCT_carterbox
 
+from rich import print
 
 # Runtime settings
 torch.set_num_threads(20)
@@ -53,12 +57,33 @@ def build_problem_tag(args):
         f"{args.NFE}",
         f"{args.use_init}",
     ]
+    parts.append(f"sigMin-{args.sigma_min:g}")
+    parts.append(f"sigMax-{args.sigma_max:g}")
     if getattr(args, "num_cg", 0):
         parts.append(f"nCG-{args.num_cg}")
     if getattr(args, "w_tik", 0):
         parts.append(f"wTIK-{args.w_tik}")
     if getattr(args, "w_dz", 0):
         parts.append(f"wDZ-{args.w_dz}")
+    parts.append(f"metricAxes-{args.metric_axes}")
+    if args.method == "REDDiff":
+        if getattr(args, "red_obs_weight", None) is not None:
+            parts.append(f"redObs-{args.red_obs_weight}")
+        if getattr(args, "red_lambda", None) is not None:
+            parts.append(f"redLam-{args.red_lambda}")
+        parts.append(f"redLR-{args.red_lr}")
+        parts.append(f"redSched-{args.red_lambda_schedule}")
+    if args.method == "DAPS":
+        parts.append(f"dapsODE-{args.daps_diffusion_num_steps}")
+        parts.append(f"dapsODESigMin-{args.daps_diffusion_sigma_min}")
+        parts.append(f"dapsLGSteps-{args.daps_lgvd_num_steps}")
+        parts.append(f"dapsLR-{args.daps_lgvd_lr}")
+        parts.append(f"dapsTau-{args.daps_lgvd_tau}")
+    if args.method == "SITCOM":
+        parts.append(f"sitLR-{args.sitcom_learning_rate}")
+        parts.append(f"sitDC-{args.sitcom_dc_weight}")
+        parts.append(f"sitBS-{args.sitcom_denoise_batch_size}")
+        parts.append(f"sitClamp-{args.sitcom_clamp_denoised}")
 
     parts.append(str(args.noise_control))
     parts.append(str(args.renoise_method))
@@ -68,10 +93,56 @@ def build_problem_tag(args):
 
 def create_save_root(args, data_name, problem):
     save_root = Path(
-        f"{args.save_dir}/{data_name}/PBCT/{args.task}-{args.degree}/{args.method}/{problem}/{datetime.datetime.now():%y%m%d_%H%M%S}/"
+        f"{args.save_dir}/{data_name}/PBCT/{args.task}-{args.degree}/{args.method}/{problem}/{datetime.datetime.now():%y%m%d_%H%M%S_%f}/"
     )
     save_root.mkdir(parents=True, exist_ok=True)
     return save_root
+
+
+def print_run_header(args, save_root: Path, problem_tag: str):
+    data_path = Path(args.data).resolve()
+    print("[bold cyan]🚀 Starting PBCT Reconstruction[/bold cyan]")
+    print(f"🧠 Data: [bold]{data_path}[/bold]")
+    print(f"🧪 Method: [bold]{args.method}[/bold] | Task: [bold]{args.task}[/bold] | GPU: [bold]{args.gpu}[/bold]")
+    print(
+        f"📚 Slices: [bold]{args.slice_begin}:{args.slice_end}:{args.slice_step}[/bold] | "
+        f"Recon size: [bold]{args.recon_size}[/bold]"
+    )
+    print(f"🌀 CT views: degree=[bold]{args.degree}[/bold] | sino_noise=[bold]{args.sino_noise:g}[/bold]")
+    print(
+        f"⚙️  EDM: NFE=[bold]{args.NFE}[/bold], num_cg=[bold]{args.num_cg}[/bold], "
+        f"sigma=[bold]{args.sigma_min:g} -> {args.sigma_max:g}[/bold]"
+    )
+    if args.method == "DAPS":
+        print(
+            f"🧮 DAPS: pf_steps=[bold]{args.daps_diffusion_num_steps}[/bold], "
+            f"pf_sigma_min=[bold]{args.daps_diffusion_sigma_min:g}[/bold], "
+            f"lg_steps=[bold]{args.daps_lgvd_num_steps}[/bold], "
+            f"lg_lr=[bold]{args.daps_lgvd_lr:g}[/bold], "
+            f"tau=[bold]{args.daps_lgvd_tau:g}[/bold], "
+            f"lr_ratio=[bold]{args.daps_lgvd_lr_min_ratio:g}[/bold]"
+        )
+    elif args.method == "DDS":
+        print("🧮 DDS: uses EDM denoiser + CG-based data consistency with stochastic re-noising.")
+    elif args.method == "DDNM":
+        print("🧮 DDNM-SIRT: uses SIRT pseudo-inverse correction with stochastic re-noising.")
+    elif args.method == "REDDiff":
+        print(
+            f"🧮 RED-Diff: lr=[bold]{args.red_lr:g}[/bold], "
+            f"lambda=[bold]{args.red_lambda if args.red_lambda is not None else 'auto'}[/bold], "
+            f"obs=[bold]{args.red_obs_weight if args.red_obs_weight is not None else 'auto'}[/bold], "
+            f"schedule=[bold]{args.red_lambda_schedule}[/bold]"
+        )
+    elif args.method == "SITCOM":
+        print(
+            f"🧮 SITCOM: lr=[bold]{args.sitcom_learning_rate:g}[/bold], "
+            f"dc_weight=[bold]{args.sitcom_dc_weight:g}[/bold], "
+            f"batch=[bold]{args.sitcom_denoise_batch_size}[/bold], "
+            f"clamp=[bold]{args.sitcom_clamp_denoised}[/bold]"
+        )
+    print(f"🏷️  Problem: [bold]{problem_tag}[/bold]")
+    print(f"💾 Save root: [bold]{save_root}[/bold]")
+    print("")
 
 
 def save_run_args(args, save_root):
@@ -118,21 +189,48 @@ def compute_fbp_and_cg(measure_model, measurement, projections):
 
 
 def load_model(ckpt_filename, device):
-    print(f'Loading network from "{ckpt_filename}"...')
+    print(f'🧠 Loading network from [bold]"{ckpt_filename}"[/bold]...')
     with open(ckpt_filename, "rb") as f:
         return pickle.load(f)["ema"].to(device)
 
 
+def load_lpips_quietly(device):
+    import lpips
+
+    buffer = io.StringIO()
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="The parameter 'pretrained' is deprecated since 0.13.*")
+        warnings.filterwarnings(
+            "ignore",
+            message="Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13.*",
+        )
+        warnings.filterwarnings(
+            "ignore",
+            message="You are using `torch.load` with `weights_only=False`.*",
+            category=FutureWarning,
+        )
+        with redirect_stdout(buffer), redirect_stderr(buffer):
+            return lpips.LPIPS(net="squeeze").to(device)
+
+
 def run_reconstruction(args, net, save_root, measurement, fbp_lv, cg_lv, measure_model):
-    latents = torch.randn_like(cg_lv.squeeze().unsqueeze(1))
+    # `cg_lv` is already in [B, 1, H, W]. Avoid `squeeze()` here because
+    # single-slice chunks would collapse the batch dimension and break the U-Net
+    # input layout.
+    latents = torch.randn_like(cg_lv)
+    red_obs_weight = args.red_obs_weight if args.red_obs_weight is not None else (args.w_dps if args.w_dps > 0 else 1.0)
+    red_lambda = args.red_lambda if args.red_lambda is not None else (args.w_tik if args.w_tik > 0 else 0.25)
 
     sampler_kwargs = {
         "net": net,
         "num_steps": args.NFE,
+        "sigma_min": args.sigma_min,
         "sigma_max": args.sigma_max,
         "save_path": save_root,
-        "save_intermediates": True,
+        "save_intermediates": False,
         "noise_control": args.noise_control,
+        "save_residual_history": args.save_residual_history,
+        "save_runtime_profile": args.save_runtime_profile,
     }
     recon_kwargs = {
         "latents": latents,
@@ -145,21 +243,59 @@ def run_reconstruction(args, net, save_root, measurement, fbp_lv, cg_lv, measure
     }
 
     if args.method == "edm":
-        print("Using edm sampling.")
+        print("🎲 Using EDM sampling.")
         sampler = base.BaseEDMSampler(**sampler_kwargs)
         x = sampler.sample(latents, x_init=cg_lv)
     elif args.method == "DiffPIR":
-        print("Run DiffPIR!")
+        print("🧪 Running DiffPIR...")
         sampler = DiffPIR.DiffPIR(**sampler_kwargs)
         x = sampler.sample(**recon_kwargs)
+    elif args.method == "DDNM":
+        print("🧪 Running DDNM-SIRT...")
+        sampler = DDNM.DDNM(**sampler_kwargs)
+        x = sampler.sample(**recon_kwargs)
+    elif args.method == "DDS":
+        print("🧪 Running DDS...")
+        sampler = DDS.DDS(**sampler_kwargs)
+        x = sampler.sample(**recon_kwargs)
     elif args.method == "DCPnPDP":
-        print("Run Dual Coupled DiffPIR!")
+        print("🧪 Running DC-PnPDP...")
         sampler = DCPnPDP.DCPnPDP(**sampler_kwargs)
         x = sampler.sample(**recon_kwargs)
     elif args.method == "SITCOM":
-        print("Run SITCOM!")
+        print("🧪 Running SITCOM...")
         sampler = SITCOM.SITCOM(**sampler_kwargs)
+        x = sampler.sample(
+            **recon_kwargs,
+            learning_rate=args.sitcom_learning_rate,
+            dc_weight=args.sitcom_dc_weight,
+            denoise_batch_size=args.sitcom_denoise_batch_size,
+            clamp_denoised=args.sitcom_clamp_denoised,
+        )
+    elif args.method == "DAPS":
+        print("🧪 Running DAPS...")
+        sampler = DAPS.DAPS(
+            **sampler_kwargs,
+            diffusion_num_steps=args.daps_diffusion_num_steps,
+            diffusion_sigma_min=args.daps_diffusion_sigma_min,
+            lgvd_num_steps=args.daps_lgvd_num_steps,
+            lgvd_lr=args.daps_lgvd_lr,
+            lgvd_tau=args.daps_lgvd_tau,
+            lgvd_lr_min_ratio=args.daps_lgvd_lr_min_ratio,
+            denoise_batch_size=args.daps_denoise_batch_size,
+        )
         x = sampler.sample(**recon_kwargs)
+    elif args.method == "REDDiff":
+        print("🧪 Running RED-Diff...")
+        sampler = REDDiff.REDDiff(**sampler_kwargs)
+        x = sampler.sample(
+            **recon_kwargs,
+            observation_weight=red_obs_weight,
+            base_lambda=red_lambda,
+            learning_rate=args.red_lr,
+            lambda_schedule=args.red_lambda_schedule,
+            denoise_batch_size=args.red_denoise_batch_size,
+        )
     else:
         raise ValueError(f"Invalid method: {args.method}.")
 
@@ -178,39 +314,63 @@ def reshape_for_metrics(x, d, h, w):
     return x.view(d, 1, h, w).clip(-1, 1)
 
 
-def compute_and_save_metrics(save_root, fbp_lv, x, gt_image, metainfo, d, h, w):
+def resolve_metric_axes(metric_axes: str):
+    if metric_axes == "axial":
+        return ("axial",)
+    if metric_axes == "all":
+        return ("axial", "coronal", "sagittal")
+    raise ValueError(f"Unsupported metric_axes: {metric_axes}")
+
+
+def compute_and_save_metrics(save_root, fbp_lv, x, gt_image, metainfo, d, h, w, metric_axes="all"):
     fbp_lv = reshape_for_metrics(fbp_lv, d, h, w)
     gt_image = reshape_for_metrics(gt_image, d, h, w)
     x = reshape_for_metrics(x, d, h, w)
+    selected_axes = resolve_metric_axes(metric_axes)
 
     data_range_gt = (gt_image.max() - gt_image.min()).item()
 
-    psnr, ssim = utils.result.cal_metrics(fbp_lv, gt_image, save_root / "FBP-LV_metrics")
-    print("--------------------------------")
-    print(f"FBP-LV PSNR: {psnr:.4f}\nFBP-LV SSIM: {ssim:.4f}")
+    print("")
+    print("[bold cyan]📊 Evaluating Reconstruction[/bold cyan]")
+    print(f"🗂️  Metrics dir: [bold]{save_root / 'recon_metrics'}[/bold]")
+    print(f"🧭 Metric axes: [bold]{', '.join(selected_axes)}[/bold]")
 
-    metrics = utils.result.compute_slice_metrics_optimized(fbp_lv, gt_image, data_range=data_range_gt)
-    utils.result.print_slice_metrics(metrics)
+    psnr, ssim = utils.result.cal_metrics(fbp_lv, gt_image, save_root / "FBP-LV_metrics")
+    print("")
+    print("[bold]📌 FBP-LV Baseline[/bold]")
+    print(f"PSNR: [bold]{psnr:.4f}[/bold]")
+    print(f"SSIM: [bold]{ssim:.4f}[/bold]")
+
+    metrics = utils.result.compute_slice_metrics_optimized(
+        fbp_lv, gt_image, data_range=data_range_gt, axes=selected_axes
+    )
+    utils.result.print_slice_metrics(metrics, axes=selected_axes)
 
     psnr, ssim = utils.result.cal_metrics(x, gt_image, save_root / "recon_metrics", sitk_info=metainfo)
-    print("--------------------------------")
-    print(f"recon PSNR: {psnr:.4f}\nrecon SSIM: {ssim:.4f}")
+    print("")
+    print("[bold]✨ Reconstruction[/bold]")
+    print(f"PSNR: [bold green]{psnr:.4f}[/bold green]")
+    print(f"SSIM: [bold green]{ssim:.4f}[/bold green]")
 
-    import lpips
-
-    lpips_net = lpips.LPIPS(net="squeeze").to("cuda")
+    lpips_net = load_lpips_quietly(x.device)
     metrics = utils.result.compute_slice_metrics_optimized(
-        x, gt_image, data_range=data_range_gt, lpips_batch_size=8, lpips_net=lpips_net
+        x,
+        gt_image,
+        data_range=data_range_gt,
+        lpips_batch_size=8,
+        lpips_net=lpips_net,
+        axes=selected_axes,
     )
-    utils.result.print_slice_metrics(metrics, include_lpips=True)
+    utils.result.print_slice_metrics(metrics, include_lpips=True, axes=selected_axes)
 
     summary_metrics = {}
     target_keys = ["PSNR_mean", "SSIM_mean", "LPIPS_mean"]
-    for axis in ["axial", "coronal", "sagittal"]:
+    for axis in selected_axes:
         summary_metrics[axis] = {k: metrics[axis][k] for k in target_keys}
 
     with open(save_root / "recon_metrics" / "metrics_summary.yaml", "w") as f:
         yaml.dump(summary_metrics, f, sort_keys=False)
+    print(f"📝 Saved metric summary to [bold]{save_root / 'recon_metrics' / 'metrics_summary.yaml'}[/bold]")
 
 
 def main(args):
@@ -219,27 +379,36 @@ def main(args):
     data_name, gt_image, metainfo, measure_model, projections, measurement = setup_measurement(args, device)
     d, h, w = gt_image.shape[1], gt_image.shape[2], gt_image.shape[3]
 
-    print(gt_image.shape)
-    print(f"Projections shape: {projections.shape}, Measurement shape: {measurement.shape}")
-
-    fbp_lv, fbp_fv, cg_lv = compute_fbp_and_cg(measure_model, measurement, projections)
-
     problem = build_problem_tag(args)
-    print(f"Task: {problem}")
-
     save_root = create_save_root(args, data_name, problem)
-    print(f"Save to: {save_root}")
+    print_run_header(args, save_root, problem)
+
+    print("[bold cyan]📦 Measurement Setup[/bold cyan]")
+    print(f"🖼️  GT shape: [bold]{tuple(gt_image.shape)}[/bold]")
+    print(f"📡 Projections shape: [bold]{tuple(projections.shape)}[/bold]")
+    print(f"📏 Measurement shape: [bold]{tuple(measurement.shape)}[/bold]")
+
+    print("")
+    print("[bold cyan]🧰 Classical Reconstructions[/bold cyan]")
+    fbp_lv, fbp_fv, cg_lv = compute_fbp_and_cg(measure_model, measurement, projections)
+    print(f"FBP-LV: [bold]{tuple(fbp_lv.shape)}[/bold] | FBP-FV: [bold]{tuple(fbp_fv.shape)}[/bold] | CG-LV: [bold]{tuple(cg_lv.shape)}[/bold]")
+
     save_run_args(args, save_root)
     save_basic_outputs(save_root, measurement, fbp_lv, fbp_fv, gt_image, cg_lv, metainfo)
+    print(f"💾 Saved inputs and baselines to [bold]{save_root}[/bold]")
 
     net = load_model(args.checkpoint_path, device)
+    print("")
+    print("[bold cyan]🧠 Diffusion Reconstruction[/bold cyan]")
     x = run_reconstruction(args, net, save_root, measurement, fbp_lv, cg_lv, measure_model)
 
-    print("💡 x:", x.shape)
+    print(f"💡 Reconstruction tensor: [bold]{tuple(x.shape)}[/bold]")
     utils.result.save_nii_image(x, os.path.join(save_root, "recon.nii.gz"), sitk_info=metainfo)
-    print(f"Save to: {save_root}")
+    print(f"📝 Saved reconstruction to [bold]{save_root / 'recon.nii.gz'}[/bold]")
 
-    compute_and_save_metrics(save_root, fbp_lv, x, gt_image, metainfo, d, h, w)
+    compute_and_save_metrics(save_root, fbp_lv, x, gt_image, metainfo, d, h, w, metric_axes=args.metric_axes)
+    print("")
+    print(f"[bold green]✅ Finished. Results saved under[/bold green] [bold]{save_root}[/bold]")
 
 
 if __name__ == "__main__":

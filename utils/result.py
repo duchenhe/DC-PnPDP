@@ -40,14 +40,36 @@ def save_nii_image(image, save_path, sitk_info=None):
     if isinstance(image, torch.Tensor):
         if image.requires_grad:
             image = image.detach()
-        image = image.float().squeeze().cpu().numpy()
+        image = image.float().cpu().numpy()
     elif isinstance(image, np.ndarray):
-        image = image.squeeze()
+        image = np.asarray(image)
+
+    # Remove only batch/channel singleton dimensions while preserving a single
+    # slice as a depth-1 3D volume. This keeps 3D metadata compatible.
+    if image.ndim == 5 and image.shape[0] == 1:
+        image = image[0]
+    if image.ndim == 4 and image.shape[1] == 1:
+        image = image[:, 0]
+    elif image.ndim == 4 and image.shape[0] == 1:
+        image = image[0]
+    else:
+        image = np.squeeze(image)
 
     sitk_image = sitk.GetImageFromArray(image)
     if sitk_info is not None:
-        sitk_image.SetSpacing(sitk_info["spacing"])
-        sitk_image.SetDirection(sitk_info["direction"])
+        spacing = sitk_info.get("spacing")
+        direction = sitk_info.get("direction")
+        dim = sitk_image.GetDimension()
+
+        if spacing is not None and len(spacing) >= dim:
+            sitk_image.SetSpacing(tuple(spacing[:dim]))
+
+        if direction is not None:
+            if len(direction) == dim * dim:
+                sitk_image.SetDirection(tuple(direction))
+            elif dim == 2 and len(direction) == 9:
+                # Project a 3D in-plane direction matrix to 2D when needed.
+                sitk_image.SetDirection((direction[0], direction[1], direction[3], direction[4]))
     sitk.WriteImage(sitk_image, save_path)
 
 
@@ -58,6 +80,7 @@ def compute_slice_metrics_optimized(
     lpips_net: torch.nn.Module = None,
     lpips_batch_size: int = 32,
     use_mask: bool = True,
+    axes: tuple[str, ...] | list[str] | None = None,
 ):
     """
     Efficiently compute PSNR, SSIM, and LPIPS metrics for a 3D volume across three axial directions.
@@ -70,11 +93,13 @@ def compute_slice_metrics_optimized(
             A pre-initialized LPIPS network model. If None, LPIPS computation is skipped.
 
     Returns:
-        dict: A dictionary containing metrics for the 'axial', 'coronal', and 'sagittal' directions.
+        dict: A dictionary containing metrics for the selected directions.
     """
 
     assert pred.shape == gt.shape, "Volumes must have the same shape"
     assert pred.ndim == 4 and pred.shape[1] == 1, "Expect shape [Z, 1, H, W]"
+    if axes is None:
+        axes = ("axial", "coronal", "sagittal")
 
     def _permute_for_axis(x, axis):
         if axis == "axial":  # Z direction slices -> [Z, 1, H, W]
@@ -87,7 +112,7 @@ def compute_slice_metrics_optimized(
             raise ValueError("axis must be 'axial', 'coronal' or 'sagittal'")
 
     results = {}
-    for axis in ["axial", "coronal", "sagittal"]:
+    for axis in axes:
         pred_slices = _permute_for_axis(pred, axis)
         gt_slices = _permute_for_axis(gt, axis)
 
@@ -158,20 +183,23 @@ def compute_slice_metrics_optimized(
 
     return results
 
-def print_slice_metrics(metrics, include_lpips=False):
+def print_slice_metrics(metrics, include_lpips=False, axes: tuple[str, ...] | list[str] | None = None):
+    if axes is None:
+        axes = tuple(metrics.keys())
+
+    axis_labels = {
+        "axial": "Axial",
+        "coronal": "Coronal",
+        "sagittal": "Sagittal",
+    }
+
     if include_lpips:
         print(f"{'View':<10}{'PSNR':>12}{'SSIM':>12}{'LPIPS':>12}")
-        print(
-            f"{'Axial':<10}{metrics['axial']['PSNR_mean']:12.2f}{metrics['axial']['SSIM_mean']:12.3f}{metrics['axial']['LPIPS_mean']:12.3f}"
-        )
-        print(
-            f"{'Coronal':<10}{metrics['coronal']['PSNR_mean']:12.2f}{metrics['coronal']['SSIM_mean']:12.3f}{metrics['coronal']['LPIPS_mean']:12.3f}"
-        )
-        print(
-            f"{'Sagittal':<10}{metrics['sagittal']['PSNR_mean']:12.2f}{metrics['sagittal']['SSIM_mean']:12.3f}{metrics['sagittal']['LPIPS_mean']:12.3f}"
-        )
+        for axis in axes:
+            print(
+                f"{axis_labels[axis]:<10}{metrics[axis]['PSNR_mean']:12.2f}{metrics[axis]['SSIM_mean']:12.3f}{metrics[axis]['LPIPS_mean']:12.3f}"
+            )
     else:
         print(f"{'View':<10}{'PSNR':>12}{'SSIM':>12}")
-        print(f"{'Axial':<10}{metrics['axial']['PSNR_mean']:12.4f}{metrics['axial']['SSIM_mean']:12.4f}")
-        print(f"{'Coronal':<10}{metrics['coronal']['PSNR_mean']:12.4f}{metrics['coronal']['SSIM_mean']:12.4f}")
-        print(f"{'Sagittal':<10}{metrics['sagittal']['PSNR_mean']:12.4f}{metrics['sagittal']['SSIM_mean']:12.4f}")
+        for axis in axes:
+            print(f"{axis_labels[axis]:<10}{metrics[axis]['PSNR_mean']:12.4f}{metrics[axis]['SSIM_mean']:12.4f}")

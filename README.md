@@ -1,12 +1,33 @@
-# Plug-and-Play Diffusion Meets ADMM: Dual-Variable Coupling for Robust Medical Image Reconstruction 🚀
+<div align="center">
 
-[![arXiv](https://img.shields.io/badge/arXiv-2602.23214-B31B1B.svg)](https://arxiv.org/abs/2602.23214)
+# 🔄 Plug-and-Play Diffusion Meets ADMM: Dual-Variable Coupling for Robust Medical Image Reconstruction (DC-PnPDP)
 
----
+<p>
+  <a href="https://duchenhe.com/">Chenhe Du</a><sup>1</sup>&nbsp;&nbsp;
+  <a href="https://meijitian.github.io/">Xuanyu Tian</a><sup>1</sup>&nbsp;&nbsp;
+  <a href="https://iwuqing.github.io/">Qing Wu</a><sup>1</sup>&nbsp;&nbsp;
+  <a href="https://scholar.google.com/citations?user=IE-DDTEAAAAJ">Muyu Liu</a><sup>1</sup>&nbsp;&nbsp;
+  <br>
+  <a href="https://faculty.sist.shanghaitech.edu.cn/yujingyi/">Jingyi Yu</a><sup>1</sup>&nbsp;&nbsp;
+  <a href="https://bme.sjtu.edu.cn/Web/FacultyDetail/72">Hongjiang Wei</a><sup>2</sup>&nbsp;&nbsp;
+  <a href="https://sist.shanghaitech.edu.cn/zhangyy8/main.htm">Yuyao Zhang</a><sup>1✉️</sup>&nbsp;&nbsp;
+</p>
+
+<p>
+        <sup>1</sup>ShanghaiTech University &nbsp;&nbsp;&nbsp;
+        <sup>2</sup>Shanghai Jiao Tong University &nbsp;&nbsp;&nbsp;
+</p>
+
+[![OpenReview](https://img.shields.io/badge/Paper-OpenReview-8A2BE2.svg)](https://openreview.net/forum?id=jEBkuuETjr) [![arXiv](https://img.shields.io/badge/arXiv-2602.23214-B31B1B.svg)](https://arxiv.org/abs/2602.23214)
+
+<img src="./figures/algorithm.png" alt="Teaser" width="50%"/>
+
+</div>
+
 
 ## 📖 Overview
 
-<img src="./figures/algorithm.png" alt="Teaser" width="50%"/>
+<!-- <img src="./figures/algorithm.png" alt="Teaser" width="50%"/> -->
 
 Plug-and-Play diffusion prior (PnPDP) methods are powerful for solving inverse problems, yet conventional HQS / proximal-style solvers are stateless and can converge to biased solutions under severe measurement corruption. We introduce two complementary ideas:
 
@@ -132,10 +153,11 @@ Results are saved to a timestamped subdirectory:
 If you find this work useful, please cite:
 
 ```bibtex
-@article{du2026dcpnpdp,
+@inproceedings{du2026dcpnpdp,
   title   = {Plug-and-Play Diffusion Meets ADMM: Dual-Variable Coupling for Robust Medical Image Reconstruction},
   author  = {Du, Chenhe and Tian, Xuanyu and Wu, Qing and Liu, Muyu and Yu, Jingyi and Wei, Hongjiang and Zhang, Yuyao},
-  journal = {arXiv preprint arXiv:2602.23214},
-  year    = {2026}
+  journal = {Forty-third International Conference on Machine Learning},
+  year    = {2026},
+  url     = {https://openreview.net/forum?id=jEBkuuETjr},
 }
 ```
